@@ -532,6 +532,10 @@ func (s *Shard) drop() error {
 		}
 	}
 
+	if s.hashtree != nil {
+		s.stopHashBeater()
+	}
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
