@@ -75,7 +75,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
-	if err := s.mayUpsertObjectHashTree(object, uuid); err != nil {
+	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
 		return errors.Wrap(err, "object creation in hashtree")
 	}
 
@@ -176,7 +176,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	return status, nil
 }
 
-func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte) error {
+func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
 	if s.hashtree == nil {
 		return nil
 	}
@@ -196,17 +196,28 @@ func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte
 	var objectDigest [16 + 8]byte
 
 	copy(objectDigest[:], uuidBytes)
-	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 
+	if status.docIDChanged {
+		if status.oldUpdateTime < 1 {
+			return fmt.Errorf("invalid object previous update time")
+		}
+
+		// Given only latest object version is maintained, previous registration is erased
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		s.hashtree.AggregateLeafWith(token, objectDigest[:])
+	}
+
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
 	return nil
 }
 
 type objectInsertStatus struct {
-	docID        uint64
-	docIDChanged bool
-	oldDocID     uint64
+	docID         uint64
+	docIDChanged  bool
+	oldDocID      uint64
+	oldUpdateTime int64
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
@@ -226,11 +237,12 @@ func (s *Shard) determineInsertStatus(previous []byte,
 		return out, nil
 	}
 
-	docID, err := storobj.DocIDFromBinary(previous)
+	docID, updateTime, err := storobj.DocIDFromBinary(previous)
 	if err != nil {
 		return out, errors.Wrap(err, "get previous doc id from object binary")
 	}
 	out.oldDocID = docID
+	out.oldUpdateTime = updateTime
 
 	// with docIDs now being immutable (see
 	// https://github.com/weaviate/weaviate/issues/1282) there is no
@@ -264,7 +276,7 @@ func (s *Shard) determineMutableInsertStatus(previous []byte,
 		return out, nil
 	}
 
-	docID, err := storobj.DocIDFromBinary(previous)
+	docID, _, err := storobj.DocIDFromBinary(previous)
 	if err != nil {
 		return out, errors.Wrap(err, "get previous doc id from object binary")
 	}
