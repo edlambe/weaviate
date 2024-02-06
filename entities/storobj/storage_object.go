@@ -23,12 +23,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/byteops"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 var bufPool *bufferPool
@@ -50,7 +50,7 @@ type Object struct {
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
-	TargetVectors	 map[string][]float32
+	Vectors           map[string][]float32 `json:"-"`
 }
 
 func New(docID uint64) *Object {
@@ -70,6 +70,17 @@ func FromObject(object *models.Object, vector []float32) *Object {
 			}
 		}
 		object.Properties = properties
+	}
+
+	// clear out nil entries of vectors to make sure leaving a vector out and setting it nil is identical
+	vectors:=  object.Vectors
+	if ok {
+		for key, vec := range vectors {
+			if vec == nil {
+				delete(vectors, key)
+			}
+		}
+		object.Vectors = vectors
 	}
 
 	return &Object{
@@ -514,13 +525,12 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	targetVectors    , err := msgpack.Marshal(ko.TargetVectors)
-    if err != nil {
-        panic(err)
-    }
+	targetVectors, err := msgpack.Marshal(ko.Vectors)
+	if err != nil {
+		panic(err)
+	}
 
 	targetVectorsLength := uint32(len(targetVectors))
-
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength + 4 + targetVectorsLength
 	byteBuffer := make([]byte, totalBufferLength)
@@ -710,6 +720,9 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
 
+	targetVectorsLength := uint64(rw.ReadUint32())
+	targetVectors, err := rw.CopyBytesFromBuffer(targetVectorsLength, nil)
+
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
@@ -718,6 +731,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		schema,
 		meta,
 		vectorWeights,
+		targetVectors,
 	)
 }
 
@@ -757,7 +771,7 @@ func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	propsB []byte, additionalB []byte, vectorWeightsB []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte, targetVectors []byte,
 ) error {
 	var props map[string]interface{}
 	if err := json.Unmarshal(propsB, &props); err != nil {
@@ -826,6 +840,13 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
+	var targetVectorsMap models.Vectors
+	if len(targetVectors) > 0 {
+		if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
+			return err
+		}
+	}
+
 	ko.Object = models.Object{
 		Class:              className,
 		CreationTimeUnix:   create,
@@ -834,6 +855,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		Properties:         props,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
+		Vectors:            targetVectorsMap,
 	}
 
 	return nil
@@ -846,12 +868,15 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 // "Dangerous". If needed, make sure everything is copied and remove the
 // suffix.
 func (ko *Object) DeepCopyDangerous() *Object {
-	return &Object{
+	o := &Object{
 		MarshallerVersion: ko.MarshallerVersion,
 		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
+		Vectors: 		 deepCopyVectors(ko.Vectors),
 	}
+
+	return o
 }
 
 func AddOwnership(objs []*Object, node, shard string) {
@@ -867,8 +892,17 @@ func deepCopyVector(orig []float32) []float32 {
 	return out
 }
 
+func deepCopyVectors(orig map[string][]float32) map[string][]float32 {
+	out := make(map[string][]float32, len(orig))
+	for key, vec := range orig {
+		out[key] = deepCopyVector(vec)
+	}
+	return out
+}
+
 func deepCopyObject(orig models.Object) models.Object {
-	return models.Object{
+
+	o:= models.Object{
 		Class:              orig.Class,
 		ID:                 orig.ID,
 		CreationTimeUnix:   orig.CreationTimeUnix,
@@ -877,6 +911,7 @@ func deepCopyObject(orig models.Object) models.Object {
 		VectorWeights:      orig.VectorWeights,
 		Additional:         orig.Additional, // WARNING: not a deep copy!!
 		Properties:         deepCopyProperties(orig.Properties),
+		Vectors:            models.Vectors(deepCopyVectors(orig.Vectors)),
 	}
 }
 
