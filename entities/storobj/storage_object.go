@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 var bufPool *bufferPool
@@ -533,7 +534,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	targetVectors, err := json.Marshal(ko.Vectors)
+	targetVectors, err := msgpack.Marshal(ko.Vectors)
 	if err != nil {
 		panic(err)
 	}
@@ -854,7 +855,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 
 	var targetVectorsMap map[string][]float32
 	if len(targetVectors) > 0 {
-		if err := json.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
+		if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
 			return err
 		}
 	}
