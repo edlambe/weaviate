@@ -23,7 +23,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,6 +31,7 @@ import (
 )
 
 var bufPool *bufferPool
+type Vectors map[string][]float32
 
 func init() {
 	// a 10kB buffer should be large enough for typical cases, it can fit a
@@ -50,7 +50,7 @@ type Object struct {
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
-	Vectors           map[string][]float32 `json:"-"`
+	Vectors           map[string][]float32 `json:"vectors"`
 }
 
 func New(docID uint64) *Object {
@@ -88,6 +88,7 @@ func FromObject(object *models.Object, vector []float32) *Object {
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
+		Vectors: 		 vectors,
 	}
 }
 
@@ -188,6 +189,11 @@ func FromBinaryOptional(data []byte,
 	vectorWeightsLength := rw.ReadUint32()
 	vectorWeights := rw.ReadBytesFromBuffer(uint64(vectorWeightsLength))
 
+	vectorsLength := rw.ReadUint32()
+	vectors := rw.ReadBytesFromBuffer(uint64(vectorsLength))
+
+
+
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
 	if len(props) > 0 ||
 		len(meta) > 0 ||
@@ -207,6 +213,7 @@ func FromBinaryOptional(data []byte,
 			props,
 			meta,
 			vectorWeights,
+			vectors,
 		); err != nil {
 			return nil, errors.Wrap(err, "parse")
 		}
@@ -393,6 +400,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
+		Vectors:  ko.Vectors,
 		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
@@ -525,7 +533,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	targetVectors, err := msgpack.Marshal(ko.Vectors)
+	targetVectors, err := json.Marshal(ko.Vectors)
 	if err != nil {
 		panic(err)
 	}
@@ -722,6 +730,10 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 
 	targetVectorsLength := uint64(rw.ReadUint32())
 	targetVectors, err := rw.CopyBytesFromBuffer(targetVectorsLength, nil)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy targetVectors")
+	}
+
 
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
@@ -840,12 +852,13 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
-	var targetVectorsMap models.Vectors
+	var targetVectorsMap map[string][]float32
 	if len(targetVectors) > 0 {
-		if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
+		if err := json.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
 			return err
 		}
 	}
+	ko.Vectors = targetVectorsMap
 
 	ko.Object = models.Object{
 		Class:              className,
@@ -902,7 +915,7 @@ func deepCopyVectors(orig map[string][]float32) map[string][]float32 {
 
 func deepCopyObject(orig models.Object) models.Object {
 
-	o:= models.Object{
+	return models.Object{
 		Class:              orig.Class,
 		ID:                 orig.ID,
 		CreationTimeUnix:   orig.CreationTimeUnix,
@@ -911,7 +924,7 @@ func deepCopyObject(orig models.Object) models.Object {
 		VectorWeights:      orig.VectorWeights,
 		Additional:         orig.Additional, // WARNING: not a deep copy!!
 		Properties:         deepCopyProperties(orig.Properties),
-		Vectors:            models.Vectors(deepCopyVectors(orig.Vectors)),
+		Vectors:            deepCopyVectors(orig.Vectors),
 	}
 }
 

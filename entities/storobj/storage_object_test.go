@@ -31,6 +31,10 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Vectors: map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -49,6 +53,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 				"name": "MyName",
 				"foo":  float64(17),
 			},
+
 		},
 		[]float32{1, 2, 0.7},
 	)
@@ -115,6 +120,11 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Vectors: map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+				"vector3": {7, 8, 9},
+			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -133,6 +143,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 				"name": "MyName",
 				"foo":  float64(17),
 			},
+
 		},
 		[]float32{1, 2, 0.7},
 	)
@@ -278,6 +289,11 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Vectors: map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+				"vector3": {7, 8, 9},
+			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -297,6 +313,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 				"numberArray": []float64{1.1, 2.1},
 				"foo":         float64(17),
 			},
+
 		},
 		[]float32{1, 2, 0.7},
 	)
@@ -401,6 +418,11 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Vectors: map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+				"vector3": {7, 8, 9},
+			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -441,6 +463,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 				"name": "MyName",
 				"foo":  float64(17),
 			},
+
 		},
 		[]float32{1, 2, 0.7},
 	)
@@ -525,6 +548,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						},
 					},
 					vector,
+
 				)
 				before.DocID = 7
 

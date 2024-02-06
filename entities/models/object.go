@@ -57,6 +57,9 @@ type Object struct {
 
 	// vector weights
 	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
+
+	// Vectors
+	Vectors map[string][]float32 `json:"vectors,omitempty"`
 }
 
 // Validate validates this object
